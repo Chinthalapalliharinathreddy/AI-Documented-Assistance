@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Document Assistant</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+  #log { border: 1px solid #ccc; border-radius: 8px; height: 380px; overflow-y: auto; padding: 1rem; white-space: pre-wrap; }
+  .me { color: #0b57d0; margin-top: .6rem; } .bot { margin-top: .2rem; }
+  .row { display: flex; gap: .5rem; margin-top: .8rem; }
+  input[type=text] { flex: 1; padding: .6rem; }
+  button { padding: .6rem 1rem; cursor: pointer; }
+</style>
+</head>
+<body>
+<h2>AI Document Assistant</h2>
+<div class="row">
+  <input type="file" id="file" accept="application/pdf">
+  <button onclick="upload()">Upload PDF</button>
+</div>
+<p id="status"></p>
+<div id="log"></div>
+<div class="row">
+  <input type="text" id="q" placeholder="Ask a question about your documents..." onkeydown="if(event.key==='Enter')ask()">
+  <button onclick="ask()">Ask</button>
+</div>
+<script>
+const log = document.getElementById('log');
+const status = document.getElementById('status');
+const session = crypto.randomUUID();
+
+async function upload() {
+  const f = document.getElementById('file').files[0];
+  if (!f) return;
+  const body = new FormData(); body.append('file', f);
+  status.textContent = 'Indexing...';
+  const r = await fetch('/upload', { method: 'POST', body });
+  const j = await r.json();
+  status.textContent = r.ok ? `Indexed ${j.chunks_indexed} chunks from ${j.file}` : (j.detail || 'Upload failed');
+}
+
+async function ask() {
+  const input = document.getElementById('q');
+  const question = input.value.trim();
+  if (!question) return;
+  input.value = '';
+  log.insertAdjacentHTML('beforeend', `<div class="me"></div><div class="bot"></div>`);
+  const me = log.querySelectorAll('.me'), bot = log.querySelectorAll('.bot');
+  me[me.length - 1].textContent = 'You: ' + question;
+  const out = bot[bot.length - 1];
+  const r = await fetch('/chat/stream', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, session_id: session })
+  });
+  if (!r.ok) { out.textContent = 'Error: ' + (await r.json()).detail; return; }
+  const reader = r.body.getReader(), dec = new TextDecoder();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    out.textContent += dec.decode(value, { stream: true });
+    log.scrollTop = log.scrollHeight;
+  }
+}
+</script>
+</body>
+</html>
